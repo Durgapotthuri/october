@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Info Retrieval App</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f4f6f8;
+      margin: 0;
+      padding: 0;
+      color: #333;
+    }
+    .container {
+      max-width: 800px;
+      margin: 40px auto;
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    .session-input {
+      display: flex;
+      justify-content: center;
+      margin-bottom: 15px;
+      gap: 10px;
+    }
+    .session-input input, .session-input select {
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+    .session-input button {
+      padding: 10px 20px;
+      border: none;
+      background-color: #4caf50;
+      color: white;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .chat-box {
+      height: 400px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      padding: 15px;
+      background: #fafafa;
+      margin-bottom: 15px;
+    }
+    .message {
+      margin: 8px 0;
+      padding: 8px 12px;
+      border-radius: 6px;
+    }
+    .user {
+      background-color: #d1e7dd;
+      text-align: right;
+    }
+    .bot {
+      background-color: #e9ecef;
+      text-align: left;
+    }
+    .input-area {
+      display: flex;
+      align-items: center;
+    }
+    .input-area input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 16px;
+    }
+    .input-area button {
+      padding: 10px 15px;
+      margin-left: 10px;
+      border: none;
+      background-color: #007bff;
+      color: white;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .file-upload {
+      margin-top: 10px;
+      text-align: center;
+    }
+    #uploadStatus {
+      margin-top: 8px;
+      text-align: center;
+      color: #28a745;
+    }
+    .reset-button {
+      margin-top: 15px;
+      text-align: center;
+    }
+    .reset-button button {
+      padding: 10px 20px;
+      background-color: #dc3545;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .loading {
+      text-align: center;
+      font-style: italic;
+      color: #555;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h1>Info Retrieval App</h1>
+
+  <div class="session-input">
+    <input id="sessionId" type="text" placeholder="Enter Session ID"/>
+    <select id="sessionDropdown" onchange="selectSession(this.value)">
+      <option value="">-- Select Session --</option>
+    </select>
+    <button onclick="loadSession()">Load Session</button>
+  </div>
+
+  <div class="chat-box" id="chatBox"></div>
+
+  <div class="input-area">
+    <input id="userInput" type="text" placeholder="Type your message..." onkeydown="if(event.key==='Enter') sendMessage()"/>
+    <button onclick="sendMessage()">Send</button>
+  </div>
+
+  <div class="file-upload">
+    <input type="file" id="fileInput" onchange="uploadFile()"/>
+    <div id="uploadStatus"></div>
+  </div>
+
+  <div class="reset-button">
+    <button onclick="resetApp()">Reset App</button>
+  </div>
+</div>
+
+<script>
+const baseUrl = "http://10.207.20.55:8004";
+
+function showLoading(message) {
+  const chatBox = document.getElementById("chatBox");
+  const loadingDiv = document.createElement("div");
+  loadingDiv.className = "loading";
+  loadingDiv.innerText = message;
+  chatBox.appendChild(loadingDiv);
+}
+
+function clearLoading() {
+  document.querySelectorAll(".loading").forEach(el => el.remove());
+}
+
+function selectSession(value) {
+  document.getElementById("sessionId").value = value;
+}
+async function loadSession() {
+  const sessionId = document.getElementById("sessionId").value.trim();
+  if (!sessionId) {
+    alert("Please enter a session ID");
+    return;
+  }
+
+  const chatBox = document.getElementById("chatBox");
+  chatBox.innerHTML = "";
+  showLoading("Loading chat history...");
+
+  try {
+    const response = await fetch(`${baseUrl}/get_history/${encodeURIComponent(sessionId)}`);
+    clearLoading();
+
+    if (response.status === 404) {
+      chatBox.innerHTML = `<p style='color:red;'>❌ Session ID "${sessionId}" not found.</p>`;
+      return;
+    }
+
+    if (!response.ok) throw new Error("Failed to load history");
+
+    const data = await response.json();
+    chatBox.innerHTML = "";
+
+    if (data.messages && data.messages.length > 0) {
+      data.messages.forEach(entry => {
+        appendMessage(entry.role, entry.content);
+      });
+    } else {
+      chatBox.innerHTML = "<p><i>No previous chat found for this session.</i></p>";
+    }
+  } catch (error) {
+    clearLoading();
+    chatBox.innerHTML = `<p style='color:red;'>Error loading session: ${error.message}</p>`;
+  }
+}
+
+async function sendMessage() {
+  const sessionId = document.getElementById("sessionId").value.trim();
+  const userInput = document.getElementById("userInput").value.trim();
+  if (!sessionId) {
+    alert("Enter a session ID first!");
+    return;
+  }
+  if (!userInput) return;
+
+  appendMessage("user", userInput);
+  document.getElementById("userInput").value = "";
+  showLoading("Generating response...");
+
+  try {
+    const response = await fetch(`${baseUrl}/chat?q=${encodeURIComponent(userInput)}&session_id=${encodeURIComponent(sessionId)}`);
+    clearLoading();
+    if (!response.ok) throw new Error("Failed to get response");
+    const data = await response.json();
+
+    appendMessage("bot", data.response || "No response");
+
+    if (data.references && data.references.length > 0) {
+      const refText = "📎 References:\n" + data.references.join("\n");
+      appendMessage("bot", refText);
+    }
+  } catch (error) {
+    clearLoading();
+    appendMessage("bot", "Error: " + error.message);
+  }
+}
+
+function appendMessage(role, message) {
+  const chatBox = document.getElementById("chatBox");
+  const msgDiv = document.createElement("div");
+  msgDiv.classList.add("message", role === "user" ? "user" : "bot");
+  msgDiv.textContent = (role === "user" ? "🧑 " : "🤖 ") + message;
+  chatBox.appendChild(msgDiv);
+  chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+async function uploadFile() {
+  const fileInput = document.getElementById("fileInput");
+  if (!fileInput.files.length) return;
+
+  const file = fileInput.files[0];
+  const formData = new FormData();
+  formData.append("file", file);
+
+  document.getElementById("uploadStatus").innerText = "⏳ Uploading...";
+  try {
+    const response = await fetch(`${baseUrl}/upload`, {
+      method: "POST",
+      body: formData
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Upload failed");
+
+    document.getElementById("uploadStatus").innerText =
+      `✅ ${file.name} uploaded successfully.`;
+  } catch (error) {
+    document.getElementById("uploadStatus").innerText = "❌ Upload failed: " + error.message;
+  }
+}
+
+async function resetApp() {
+  if (!confirm("Are you sure you want to reset the app? This will delete all uploaded documents and embeddings.")) return;
+
+  try {
+    const response = await fetch(`${baseUrl}/reset`, {
+      method: "POST"
+    });
+    if (!response.ok) throw new Error("Reset failed");
+    const data = await response.json();
+    alert(data.message);
+    document.getElementById("chatBox").innerHTML = "";
+    document.getElementById("uploadStatus").innerText = "";
+  } catch (error) {
+    alert("❌ Reset failed: " + error.message);
+  }
+}
+
+// Optional: Populate dropdown with session IDs (if endpoint exists)
+async function fetchSessionList() {
+  try {
+    const response = await fetch(`${baseUrl}/list_sessions`);
+    if (!response.ok) return;
+    const data = await response.json();
+    const dropdown = document.getElementById("sessionDropdown");
+    data.sessions.forEach(session => {
+      const option = document.createElement("option");
+      option.value = session;
+      option.textContent = session;
+      dropdown.appendChild(option);
+    });
+  } catch (error) {
+    console.warn("Could not load session list:", error);
+  }
+}
+
+fetchSessionList();
+</script>
+</body>
+</html>
